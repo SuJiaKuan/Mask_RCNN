@@ -7,9 +7,13 @@ Licensed under the MIT License (see LICENSE for details)
 Written by Waleed Abdulla
 """
 
+import sys
+sys.path.append('/usr/local/cv3.5/lib/python3.5/dist-packages')
+
 import random
 import itertools
 import colorsys
+import cv2
 import numpy as np
 from skimage.measure import find_contours
 import matplotlib.pyplot as plt
@@ -105,6 +109,7 @@ def display_instances(image, boxes, masks, class_ids, class_names,
     ax.set_title(title)
 
     masked_image = image.astype(np.uint32).copy()
+    label_captions = []
     for i in range(N):
         color = colors[i]
 
@@ -127,6 +132,12 @@ def display_instances(image, boxes, masks, class_ids, class_names,
         ax.text(x1, y1 + 8, caption,
                 color='w', size=11, backgroundcolor="none")
 
+        label_captions.append({
+            'caption': caption,
+            'x': x1,
+            'y': y1 + 8
+        })
+
         # Mask
         mask = masks[:, :, i]
         masked_image = apply_mask(masked_image, mask, color)
@@ -143,6 +154,27 @@ def display_instances(image, boxes, masks, class_ids, class_names,
             p = Polygon(verts, facecolor="none", edgecolor=color)
             ax.add_patch(p)
     ax.imshow(masked_image.astype(np.uint8))
+
+    masked_image = masked_image.astype(np.uint8)
+    for label_caption in label_captions:
+        caption = label_caption['caption']
+        x = label_caption['x']
+        y = label_caption['y']
+        font_face = cv2.FONT_HERSHEY_PLAIN
+        font_scale = 1
+        thickness = 1
+        font_color = (255, 255, 255)
+        bg_color = (0, 0, 0)
+        text_size, baseline = cv2.getTextSize(caption, font_face, font_scale,
+                                              thickness)
+        cv2.rectangle(masked_image, (x, y + baseline),
+                      (x + text_size[0], y - text_size[1]),
+                      bg_color, thickness=cv2.FILLED)
+        cv2.putText(masked_image, caption, (x, y), font_face, font_face,
+                    font_color, thickness=thickness)
+    cv2.imshow('mask', masked_image)
+    cv2.waitKey(1)
+
 
 
 def draw_rois(image, rois, refined_rois, mask, class_ids, class_names, limit=10):
@@ -497,3 +529,53 @@ def display_weight_stats(model):
                 "{:+9.4f}".format(w.std()),
             ])
     display_table(table)
+
+
+def fence_display(image, masks, class_ids, class_names, scores,
+                  detected_class_names, detected_color, detected_threshold,
+                  fence_mask, fence_color):
+    in_region = False
+    masked_image = image.astype(np.uint32).copy()
+
+    # Draw electronic fence
+    masked_image = apply_mask(masked_image, fence_mask, fence_color)
+
+    # Number of instances
+    N = class_ids.shape[0]
+
+    for i in range(N):
+        # Check class label is in detected list
+        class_id = class_ids[i]
+        label = class_names[class_id]
+        if not label in detected_class_names:
+            continue
+
+        # Check score is >= threshold
+        score = scores[i]
+        if score < detected_threshold:
+            continue
+        print('Detected Object: {}, {}'.format(label, score))
+
+        # Check detected object is in fence region
+        mask = masks[:, :, i]
+        if not in_region:
+            and_mask = np.logical_and(fence_mask, mask)
+            in_region = np.sum(and_mask) > 0
+
+        # Apply mask to detected object
+        masked_image = apply_mask(masked_image, mask, detected_color)
+
+        """
+        shown_image = masked_image.astype(np.uint8)
+        cv2.imshow('Electronic Fence', shown_image)
+        cv2.waitKey(0)
+        """
+
+    # Show the masked image
+    masked_image = masked_image.astype(np.uint8)
+    cv2.imshow('Electronic Fence', masked_image)
+    cv2.waitKey(1)
+    """
+    """
+
+    return in_region, masked_image
